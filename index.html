@@ -1,0 +1,451 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+  <meta charset="UTF-8" />
+  <meta name="viewport" content="width=device-width, initial-scale=1.0" />
+  <title>TutorMind — Adaptive Learning Agent</title>
+  <link rel="stylesheet" href="css.css" />
+</head>
+<body>
+  <header class="app-header">
+    <div class="brand">
+      <span class="logo">🧠</span>
+      <h1>TutorMind</h1>
+    </div>
+    <p class="tagline">Your adaptive AI learning tutor</p>
+  </header>
+
+  <main class="container">
+    <!-- Setup panel -->
+    <section id="setup-panel" class="panel">
+      <h2>Start a Session</h2>
+      <label for="student-name">Your name</label>
+      <input type="text" id="student-name" placeholder="e.g. Amara" />
+
+      <label for="subject">Choose a subject</label>
+      <select id="subject">
+        <option value="math">Mathematics (Algebra basics)</option>
+        <option value="science">Science (General)</option>
+        <option value="history">World History</option>
+        <option value="vocab">English Vocabulary</option>
+      </select>
+
+      <label for="level">Starting level</label>
+      <select id="level">
+        <option value="1">Beginner</option>
+        <option value="2" selected>Intermediate</option>
+        <option value="3">Advanced</option>
+      </select>
+
+      <button id="start-btn" class="primary-btn">Begin Tutoring →</button>
+    </section>
+
+    <!-- Tutor panel -->
+    <section id="tutor-panel" class="panel hidden">
+      <div class="stats-bar">
+        <div class="stat"><span class="stat-label">Student</span><span id="stat-name">—</span></div>
+        <div class="stat"><span class="stat-label">Subject</span><span id="stat-subject">—</span></div>
+        <div class="stat"><span class="stat-label">Level</span><span id="stat-level">—</span></div>
+        <div class="stat"><span class="stat-label">Score</span><span id="stat-score">0 / 0</span></div>
+        <div class="stat"><span class="stat-label">Streak</span><span id="stat-streak">0 🔥</span></div>
+      </div>
+
+      <div id="chat-window" class="chat-window" aria-live="polite"></div>
+
+      <form id="answer-form" class="answer-form">
+        <input
+          type="text"
+          id="answer-input"
+          placeholder="Type your answer or ask for a hint..."
+          autocomplete="off"
+        />
+        <button type="submit" class="primary-btn">Send</button>
+        <button type="button" id="hint-btn" class="ghost-btn">💡 Hint</button>
+        <button type="button" id="skip-btn" class="ghost-btn">⏭ Skip</button>
+        <button type="button" id="end-btn" class="danger-btn">End Session</button>
+      </form>
+    </section>
+
+    <!-- Summary panel -->
+    <section id="summary-panel" class="panel hidden">
+      <h2>Session Summary</h2>
+      <div id="summary-content"></div>
+      <button id="restart-btn" class="primary-btn">Start New Session</button>
+    </section>
+  </main>
+
+  <footer class="app-footer">
+    <small>TutorMind agent · adaptive difficulty · runs locally in your browser</small>
+  </footer>
+
+  <script>
+    /* =========================================================
+       TutorMind — Adaptive Learning Agent
+       ---------------------------------------------------------
+       Agent loop:
+         1. Perceive   → read student input + history
+         2. Reason     → classify intent (answer / hint / question)
+         3. Act        → grade, give feedback, adjust difficulty,
+                         pick next question
+         4. Remember   → update student model (mastery, streak,
+                         weak topics)
+       ========================================================= */
+
+    // ---------- Knowledge Base ----------
+    const KNOWLEDGE_BASE = {
+      math: [
+        { level: 1, topic: "addition", q: "What is 12 + 9?", a: ["21"], hint: "Add the ones place first." },
+        { level: 1, topic: "subtraction", q: "What is 25 - 8?", a: ["17"], hint: "Borrow from the tens place." },
+        { level: 1, topic: "multiplication", q: "What is 7 × 6?", a: ["42"], hint: "Think of 7 groups of 6." },
+        { level: 2, topic: "algebra", q: "Solve for x: 2x + 5 = 15", a: ["5", "x=5", "x = 5"], hint: "Subtract 5 from both sides first." },
+        { level: 2, topic: "algebra", q: "Solve for x: 3x - 4 = 11", a: ["5", "x=5", "x = 5"], hint: "Isolate the term with x." },
+        { level: 2, topic: "fractions", q: "What is 1/2 + 1/4?", a: ["3/4", "0.75"], hint: "Find a common denominator." },
+        { level: 3, topic: "quadratics", q: "Solve: x² - 5x + 6 = 0 (smallest root first, comma separated)", a: ["2,3", "2, 3"], hint: "Factor it: (x - a)(x - b) = 0." },
+        { level: 3, topic: "geometry", q: "Area of a circle with radius 5? (use π ≈ 3.14)", a: ["78.5", "78.50"], hint: "Area = πr²." },
+      ],
+      science: [
+        { level: 1, topic: "biology", q: "What gas do plants absorb for photosynthesis?", a: ["carbon dioxide", "co2"], hint: "It's what we exhale." },
+        { level: 1, topic: "physics", q: "What force pulls objects toward Earth?", a: ["gravity"], hint: "Newton's apple." },
+        { level: 2, topic: "chemistry", q: "What is the chemical symbol for gold?", a: ["au"], hint: "From Latin 'aurum'." },
+        { level: 2, topic: "physics", q: "What is the unit of electric current?", a: ["ampere", "amp", "amps", "amperes"], hint: "Named after André-Marie Ampère." },
+        { level: 3, topic: "physics", q: "What is the speed of light in m/s? (approx, no commas)", a: ["300000000", "3x10^8", "3e8"], hint: "About 3 × 10⁸." },
+        { level: 3, topic: "biology", q: "What molecule carries genetic instructions?", a: ["dna"], hint: "Double helix." },
+      ],
+      history: [
+        { level: 1, topic: "ancient", q: "Which river was central to Ancient Egypt?", a: ["nile", "the nile"], hint: "It flows north into the Mediterranean." },
+        { level: 1, topic: "modern", q: "Who was the first President of the USA?", a: ["george washington", "washington"], hint: "He's on the $1 bill." },
+        { level: 2, topic: "world wars", q: "In what year did World War II end?", a: ["1945"], hint: "Mid-1940s." },
+        { level: 2, topic: "africa", q: "In what year did Kenya gain independence?", a: ["1963"], hint: "Early 1960s." },
+        { level: 3, topic: "renaissance", q: "Who painted the Sistine Chapel ceiling?", a: ["michelangelo"], hint: "Italian Renaissance master, not the Ninja Turtle." },
+        { level: 3, topic: "revolutions", q: "In what year did the French Revolution begin?", a: ["1789"], hint: "Late 18th century." },
+      ],
+      vocab: [
+        { level: 1, topic: "synonyms", q: "What is a synonym for 'happy'?", a: ["joyful", "glad", "cheerful", "content", "elated"], hint: "Feeling good." },
+        { level: 1, topic: "antonyms", q: "What is the opposite of 'hot'?", a: ["cold", "cool", "freezing"], hint: "Low temperature." },
+        { level: 2, topic: "definitions", q: "What does 'ubiquitous' mean? (one word)", a: ["everywhere", "omnipresent", "widespread"], hint: "Present in many places at once." },
+        { level: 2, topic: "definitions", q: "What does 'ephemeral' mean? (one word)", a: ["temporary", "fleeting", "short-lived", "transient", "brief"], hint: "Doesn't last long." },
+        { level: 3, topic: "definitions", q: "Define 'sycophant' (one word).", a: ["flatterer", "boot-licker", "bootlicker", "yes-man"], hint: "Someone who gives insincere praise." },
+        { level: 3, topic: "definitions", q: "Define 'pernicious' (one word).", a: ["harmful", "destructive", "deadly", "dangerous"], hint: "Causing damage, often gradually." },
+      ],
+    };
+
+    // ---------- Student Model (memory) ----------
+    const student = {
+      name: "",
+      subject: "",
+      level: 2,
+      correct: 0,
+      total: 0,
+      streak: 0,
+      bestStreak: 0,
+      weakTopics: {},   // topic -> wrong count
+      strongTopics: {}, // topic -> right count
+      asked: new Set(), // question indices already used
+      currentQuestion: null,
+      hintUsed: false,
+      log: [],          // {q, given, correct, isRight}
+    };
+
+    // ---------- DOM helpers ----------
+    const $ = (id) => document.getElementById(id);
+    const chat = () => $("chat-window");
+
+    function addMessage(text, who = "tutor") {
+      const div = document.createElement("div");
+      div.className = `msg msg-${who}`;
+      div.innerHTML = `<div class="bubble">${text}</div>`;
+      chat().appendChild(div);
+      chat().scrollTop = chat().scrollHeight;
+    }
+
+    function updateStats() {
+      $("stat-name").textContent = student.name || "—";
+      $("stat-subject").textContent = labelForSubject(student.subject);
+      $("stat-level").textContent = ["", "Beginner", "Intermediate", "Advanced"][student.level];
+      $("stat-score").textContent = `${student.correct} / ${student.total}`;
+      $("stat-streak").textContent = `${student.streak} 🔥`;
+    }
+
+    function labelForSubject(s) {
+      return ({ math: "Mathematics", science: "Science", history: "History", vocab: "Vocabulary" })[s] || "—";
+    }
+
+    // ---------- Agent: pick next question ----------
+    function pickNextQuestion() {
+      const pool = KNOWLEDGE_BASE[student.subject];
+      // Prefer questions matching current level that haven't been asked
+      let candidates = pool
+        .map((q, i) => ({ ...q, idx: i }))
+        .filter((q) => !student.asked.has(q.idx));
+
+      if (candidates.length === 0) {
+        // Reset asked list if pool exhausted
+        student.asked.clear();
+        candidates = pool.map((q, i) => ({ ...q, idx: i }));
+      }
+
+      // Filter by level; if none, fall back to nearest level
+      let levelMatched = candidates.filter((q) => q.level === student.level);
+      if (levelMatched.length === 0) {
+        levelMatched = candidates.sort(
+          (a, b) => Math.abs(a.level - student.level) - Math.abs(b.level - student.level)
+        );
+      }
+
+      // Bias toward weak topics if any
+      const weak = Object.keys(student.weakTopics);
+      const weakMatch = levelMatched.filter((q) => weak.includes(q.topic));
+      const finalPool = weakMatch.length > 0 && Math.random() < 0.6 ? weakMatch : levelMatched;
+
+      const chosen = finalPool[Math.floor(Math.random() * finalPool.length)];
+      student.asked.add(chosen.idx);
+      student.currentQuestion = chosen;
+      student.hintUsed = false;
+      return chosen;
+    }
+
+    // ---------- Agent: grading ----------
+    function normalize(s) {
+      return String(s).trim().toLowerCase().replace(/\s+/g, " ");
+    }
+
+    function gradeAnswer(userInput) {
+      const q = student.currentQuestion;
+      if (!q) return false;
+      const norm = normalize(userInput);
+      return q.a.some((acc) => normalize(acc) === norm);
+    }
+
+    // ---------- Agent: adapt difficulty ----------
+    function adaptDifficulty() {
+      // Move up after 3-streak; move down after 2 wrong in a row
+      if (student.streak >= 3 && student.level < 3) {
+        student.level += 1;
+        student.streak = 0;
+        return `📈 You're on fire — leveling up to **${["", "Beginner", "Intermediate", "Advanced"][student.level]}**!`;
+      }
+      // Check last 2 entries for consecutive wrong answers
+      const last2 = student.log.slice(-2);
+      if (last2.length === 2 && last2.every((e) => !e.isRight) && student.level > 1) {
+        student.level -= 1;
+        return `📉 Let's slow down a bit — dropping to **${["", "Beginner", "Intermediate", "Advanced"][student.level]}** for a few easier ones.`;
+      }
+      return null;
+    }
+
+    // ---------- Agent: intent classifier ----------
+    function classifyIntent(text) {
+      const t = text.toLowerCase().trim();
+      if (/^(hint|help|clue|i don'?t know|idk|stuck)\b/.test(t)) return "hint";
+      if (/^(skip|next|pass)\b/.test(t)) return "skip";
+      if (/^(quit|stop|end|exit|bye)\b/.test(t)) return "end";
+      if (/^(why|how|explain|what does|tell me)/.test(t)) return "explain";
+      return "answer";
+    }
+
+    // ---------- Agent: feedback generator ----------
+    function feedbackForCorrect() {
+      const lines = [
+        "✅ Correct! Nicely done.",
+        "✅ Spot on!",
+        "✅ That's right — well reasoned.",
+        "✅ Exactly. You're getting the hang of this.",
+      ];
+      return lines[Math.floor(Math.random() * lines.length)];
+    }
+
+    function feedbackForWrong(q) {
+      const correct = q.a[0];
+      return `❌ Not quite. The answer is **${correct}**. ${q.hint}`;
+    }
+
+    // ---------- Agent: explanation (stub for LLM) ----------
+    async function callLLM(prompt) {
+      /* Replace this stub with a real API call (OpenAI, Anthropic, etc.).
+         For now, return a templated explanation. */
+      return `Here's a quick explanation: ${prompt}`;
+    }
+
+    async function explainCurrent() {
+      const q = student.currentQuestion;
+      if (!q) return "No active question to explain.";
+      return `**About this question:** ${q.q}\n\n**Hint:** ${q.hint}\n\n**Topic:** ${q.topic}`;
+    }
+
+    // ---------- Agent loop: handle one student turn ----------
+    async function handleStudentTurn(text) {
+      const intent = classifyIntent(text);
+
+      if (intent === "end") {
+        endSession();
+        return;
+      }
+
+      if (intent === "hint") {
+        student.hintUsed = true;
+        addMessage(`💡 Hint: ${student.currentQuestion.hint}`, "tutor");
+        return;
+      }
+
+      if (intent === "skip") {
+        addMessage(`Skipping. The answer was **${student.currentQuestion.a[0]}**.`, "tutor");
+        student.log.push({
+          q: student.currentQuestion.q,
+          given: "(skipped)",
+          correct: student.currentQuestion.a[0],
+          isRight: false,
+        });
+        student.total += 1;
+        student.streak = 0;
+        bumpWeak(student.currentQuestion.topic);
+        await askNext();
+        return;
+      }
+
+      if (intent === "explain") {
+        const explanation = await explainCurrent();
+        addMessage(explanation.replace(/\n/g, "<br>"), "tutor");
+        return;
+      }
+
+      // intent === "answer"
+      const isRight = gradeAnswer(text);
+      const q = student.currentQuestion;
+      student.total += 1;
+      student.log.push({ q: q.q, given: text, correct: q.a[0], isRight });
+
+      if (isRight) {
+        student.correct += 1;
+        student.streak += 1;
+        student.bestStreak = Math.max(student.bestStreak, student.streak);
+        bumpStrong(q.topic);
+        addMessage(feedbackForCorrect(), "tutor");
+      } else {
+        student.streak = 0;
+        bumpWeak(q.topic);
+        addMessage(feedbackForWrong(q), "tutor");
+      }
+
+      const adaptMsg = adaptDifficulty();
+      if (adaptMsg) addMessage(adaptMsg.replace(/\*\*(.+?)\*\*/g, "<strong>$1</strong>"), "tutor");
+
+      updateStats();
+      await askNext();
+    }
+
+    function bumpWeak(topic) {
+      student.weakTopics[topic] = (student.weakTopics[topic] || 0) + 1;
+    }
+    function bumpStrong(topic) {
+      student.strongTopics[topic] = (student.strongTopics[topic] || 0) + 1;
+      // If a weak topic gets 2 correct answers, remove it from weak list
+      if (student.weakTopics[topic] && student.strongTopics[topic] >= 2) {
+        delete student.weakTopics[topic];
+      }
+    }
+
+    async function askNext() {
+      const q = pickNextQuestion();
+      await new Promise((r) => setTimeout(r, 400)); // small pacing pause
+      addMessage(`<strong>Question:</strong> ${q.q}`, "tutor");
+    }
+
+    // ---------- Session lifecycle ----------
+    function startSession() {
+      const name = $("student-name").value.trim() || "Student";
+      student.name = name;
+      student.subject = $("subject").value;
+      student.level = parseInt($("level").value, 10);
+      student.correct = 0;
+      student.total = 0;
+      student.streak = 0;
+      student.bestStreak = 0;
+      student.weakTopics = {};
+      student.strongTopics = {};
+      student.asked = new Set();
+      student.log = [];
+
+      $("setup-panel").classList.add("hidden");
+      $("summary-panel").classList.add("hidden");
+      $("tutor-panel").classList.remove("hidden");
+      chat().innerHTML = "";
+
+      updateStats();
+      addMessage(
+        `Hi <strong>${student.name}</strong>! I'm your TutorMind agent. We'll work through ${labelForSubject(student.subject)} together. I'll adapt to how you're doing — type "hint" if you're stuck, "skip" to move on, or "end" to finish.`,
+        "tutor"
+      );
+      askNext();
+    }
+
+    function endSession() {
+      $("tutor-panel").classList.add("hidden");
+      $("summary-panel").classList.remove("hidden");
+
+      const acc = student.total === 0 ? 0 : Math.round((student.correct / student.total) * 100);
+      const weak = Object.entries(student.weakTopics).sort((a, b) => b[1] - a[1]);
+      const strong = Object.entries(student.strongTopics).sort((a, b) => b[1] - a[1]);
+
+      const weakHtml = weak.length
+        ? `<ul>${weak.map(([t, n]) => `<li><strong>${t}</strong> — ${n} miss${n > 1 ? "es" : ""}</li>`).join("")}</ul>`
+        : "<p>None — great work!</p>";
+
+      const strongHtml = strong.length
+        ? `<ul>${strong.map(([t, n]) => `<li><strong>${t}</strong> — ${n} correct</li>`).join("")}</ul>`
+        : "<p>Keep practicing to build strengths!</p>";
+
+      const recommendation = generateRecommendation(acc, weak);
+
+      $("summary-content").innerHTML = `
+        <div class="summary-grid">
+          <div class="summary-card"><h3>Accuracy</h3><p class="big-num">${acc}%</p></div>
+          <div class="summary-card"><h3>Questions</h3><p class="big-num">${student.total}</p></div>
+          <div class="summary-card"><h3>Best Streak</h3><p class="big-num">${student.bestStreak} 🔥</p></div>
+          <div class="summary-card"><h3>Final Level</h3><p class="big-num">${["", "Beginner", "Intermediate", "Advanced"][student.level]}</p></div>
+        </div>
+        <h3>Topics to review</h3>${weakHtml}
+        <h3>Your strengths</h3>${strongHtml}
+        <h3>Next steps</h3>
+        <p>${recommendation}</p>
+      `;
+    }
+
+    function generateRecommendation(acc, weak) {
+      if (acc >= 85) {
+        return "Strong performance — try bumping up to the next difficulty level next time, or explore a new subject.";
+      }
+      if (acc >= 60) {
+        const focus = weak.length ? `Focus especially on <strong>${weak[0][0]}</strong>.` : "";
+        return `Solid effort. A bit more practice will lock things in. ${focus}`;
+      }
+      const focus = weak.length
+        ? `Spend extra time on <strong>${weak.map((w) => w[0]).join(", ")}</strong>.`
+        : "Review the fundamentals and try again.";
+      return `Don't worry — every miss is a learning signal. ${focus}`;
+    }
+
+    // ---------- Event bindings ----------
+    $("start-btn").addEventListener("click", startSession);
+    $("restart-btn").addEventListener("click", () => {
+      $("summary-panel").classList.add("hidden");
+      $("setup-panel").classList.remove("hidden");
+    });
+    $("end-btn").addEventListener("click", endSession);
+    $("hint-btn").addEventListener("click", () => {
+      student.hintUsed = true;
+      addMessage(`💡 Hint: ${student.currentQuestion.hint}`, "tutor");
+    });
+    $("skip-btn").addEventListener("click", () => handleStudentTurn("skip"));
+
+    $("answer-form").addEventListener("submit", async (e) => {
+      e.preventDefault();
+      const input = $("answer-input");
+      const text = input.value.trim();
+      if (!text) return;
+      addMessage(text, "student");
+      input.value = "";
+      await handleStudentTurn(text);
+    });
+  </script>
+</body>
+</html>
